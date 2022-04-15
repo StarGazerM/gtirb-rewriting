@@ -133,12 +133,14 @@ class Assembler:
 
         for event in events:
             if event["kind"] == "instruction":
+                # print(event["inst"])
                 self._assemble_instruction(
                     bytes.fromhex(event["data"]),
                     event["inst"],
                     event["fixups"],
                 )
             elif event["kind"] == "label":
+                # print(event)
                 self._assemble_label(event["symbol"])
             elif event["kind"] == "changeSection":
                 self._assemble_change_section(event["section"])
@@ -146,6 +148,9 @@ class Assembler:
                 self._assemble_bytes(bytes.fromhex(event["data"]))
             elif event["kind"] == "emitValue":
                 self._assemble_emit_value(event["value"], event["size"])
+            elif event["kind"]  == "commonSymbol":
+                # all common symbol must be handled before get here
+                self._assemble_label(event["symbol"])
             else:
                 assert False, f"Unsupported assembler event: {event['kind']}"
 

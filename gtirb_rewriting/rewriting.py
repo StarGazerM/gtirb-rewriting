@@ -56,6 +56,7 @@ class _FunctionInsertion(NamedTuple):
     symbol: gtirb.Symbol
     block: gtirb.CodeBlock
     patch: Patch
+    order: int
 
 
 class RewritingContext:
@@ -200,6 +201,7 @@ class RewritingContext:
             temp_symbol_suffix=f"_{self._patch_id}",
             module_symbols=self._symbols_by_name,
             trivially_unreachable=is_trivially_unreachable,
+            # allow_undef_symbols=True
         )
         for snippet in prologue:
             assembler.assemble(snippet.code, snippet.x86_syntax)
@@ -351,6 +353,7 @@ class RewritingContext:
         actual_block = block
         total_insert_len = 0
         for insertion, offset in insertions_and_offsets:
+            # print(f"Insertion at {insertion.scope.addr}")
             block_delta = actual_block.offset - block.offset
             actual_block, insert_len = self._invoke_patch(
                 modify_cache,
@@ -498,12 +501,13 @@ class RewritingContext:
         self._insertions.append(_Insertion(scope, patch))
 
     def register_insert_function(
-        self, name: str, patch: Patch
+        self, name: str, patch: Patch, order=0
     ) -> gtirb.Symbol:
         """
         Registers a patch to be inserted as a function.
         :param name: The name of the function to be inserted.
         :param patch: The patch to be inserted.
+        :param order: Function insertion order
         :returns: The new function symbol.
         """
         block = gtirb.CodeBlock()
@@ -514,7 +518,7 @@ class RewritingContext:
         sym.referent = block
         # TODO: Should we be adding the symbol here?
         self._module.symbols.add(sym)
-        self._function_insertions.append(_FunctionInsertion(sym, block, patch))
+        self._function_insertions.append(_FunctionInsertion(sym, block, patch, order))
         return sym
 
     def insert_at(
@@ -563,16 +567,19 @@ class RewritingContext:
                 self._module, self._functions, return_cache
             )
 
-            for func in self._function_insertions:
+            for func in sorted(self._function_insertions, key=lambda f: f.order):
                 self._insert_function_stub(
                     modify_cache, func.symbol, func.block
                 )
 
-            for func in self._function_insertions:
+            for func in sorted(self._function_insertions, key=lambda f: f.order):
+                print(func)
                 self._apply_function_insertion(
                     modify_cache, func.symbol, func.block, func.patch
                 )
 
+            # type of [([insertion], function, block)]
+            _insertions = []
             for f in sorted(self._functions, key=lambda f: f.uuid):
                 func_insertions = [
                     insertion
@@ -592,10 +599,13 @@ class RewritingContext:
                     ]
                     if not block_insertions:
                         continue
-
-                    self._apply_insertions(
-                        modify_cache, block_insertions, f, b
-                    )
+                    _insertions.append((block_insertions, f, b))
+                    # self._apply_insertions(
+                    #     modify_cache, block_insertions, f, b
+                    # )
+            for _ins in sorted(_insertions, key=lambda ip: ip[2].address):
+                self._apply_insertions(modify_cache, _ins[0], _ins[1], _ins[2])
+            
 
         # Remove CFI directives, since we will most likely be invalidating
         # most (or all) of them.
